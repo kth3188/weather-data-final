@@ -17,13 +17,18 @@ app.get("/weather", function (req: any, res: any) {
   };
 
   request.get(options, function (error: any, response: any, body: any) {
-    if (!error && response.statusCode == 200) {
-      res.writeHead(200, { "Content-Type": "application/xml;charset=utf-8" });
-      res.end(body);
-    } else {
-      res.status(response.statusCode).end();
-      console.log("error = " + response.statusCode);
+    if (error) {
+      console.error('Request error:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
     }
+    
+    if (response.statusCode !== 200) {
+      console.error('API error:', body);
+      return res.status(response.statusCode).send(body);
+    }
+
+    res.setHeader('Content-Type', 'application/xml;charset=utf-8');
+    res.send(body);
   });
 });
 
