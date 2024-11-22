@@ -42,6 +42,11 @@ async function getWeatherData(nx: number, ny: number) {
     const serviceKey = process.env.WEATHER_API_KEY;
     const { baseDate, baseTime } = getCurrentDateTime();
     
+    console.log('환경변수 확인:', {
+      WEATHER_API_KEY: process.env.WEATHER_API_KEY ? '설정됨' : '미설정'
+    });
+    console.log('날짜/시간 확인:', { baseDate, baseTime });
+
     const url = 'http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst';
     const params = {
       serviceKey: decodeURIComponent("cPdGKAsUpOaVmBWNujf8zCL0q%2BXyzMSMGebwv4%2FLt%2BMJZCz8lOidIVcww3rhbqJ%2FyO8OLyRi0QJY%2FimdYx7zSg%3D%3D"),
@@ -95,14 +100,10 @@ async function getWeatherData(nx: number, ny: number) {
       requestTime: { baseDate, baseTime }
     };
   } catch (error) {
-    console.error('날씨 API 호출 실패:', error);
-    if (axios.isAxiosError(error)) {
-      console.error('API 상세 에러:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data
-      });
-    }
+    console.error('상세 에러 정보:', {
+      message: error instanceof Error ? error.message : '알 수 없는 에러',
+      stack: error instanceof Error ? error.stack : undefined
+    });
     throw error;
   }
 }
@@ -177,6 +178,10 @@ const regionHandler: RequestHandler<{}, {}, {}, RegionQuery> = async (req, res, 
       res.status(404).json({ error: '지역을 찾을 수 없습니다.' });
       return;
     }
+
+    console.log('요청 파라미터:', req.query);
+    console.log('검색된 좌표:', coordinate);
+    console.log('날씨 데이터 요청 전');
 
     const weatherData = await getWeatherData(coordinate.nx, coordinate.ny);
     res.json({
