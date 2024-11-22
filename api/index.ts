@@ -1,7 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
-import { coordinateService, type Coordinate, type RegionQuery } from '../utils/coordinateService';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -10,49 +12,34 @@ app.use(express.json());
 // 현재 시간 기준으로 baseDate와 baseTime을 구하는 함수
 function getCurrentDateTime() {
   const now = new Date();
-  const currentHour = now.getHours();
-  
   const baseDate = now.getFullYear() +
     String(now.getMonth() + 1).padStart(2, '0') +
     String(now.getDate()).padStart(2, '0');
-
+    
+  // 매시각 정시에 생성되고 10분 후에 데이터가 제공됨
+  const currentMinute = now.getMinutes();
   let baseTime;
-  if (currentHour < 2) {
-    const yesterday = new Date(now.setDate(now.getDate() - 1));
-    return {
-      baseDate: yesterday.getFullYear() +
-        String(yesterday.getMonth() + 1).padStart(2, '0') +
-        String(yesterday.getDate()).padStart(2, '0'),
-      baseTime: '2300'
-    };
+  
+  if (currentMinute < 10) {
+    // 이전 시각의 데이터 사용
+    const previousHour = new Date(now.getTime() - 60 * 60 * 1000);
+    baseTime = String(previousHour.getHours()).padStart(2, '0') + '00';
+  } else {
+    baseTime = String(now.getHours()).padStart(2, '0') + '00';
   }
-  
-  // 시간대별 baseTime 설정
-  const timeMap: { [key: number]: string } = {
-    2: '0200', 5: '0500', 8: '0800', 11: '1100',
-    14: '1400', 17: '1700', 20: '2000', 23: '2300'
-  };
-  
-  const hours = Object.keys(timeMap).map(Number);
-  for (let i = 0; i < hours.length; i++) {
-    if (currentHour < hours[i]) {
-      baseTime = timeMap[hours[i - 1]];
-      break;
-    }
-  }
-  
+
   return { baseDate, baseTime };
 }
 
 // 날씨 데이터를 가져오는 함수
 async function getWeatherData(nx: number, ny: number) {
   try {
-    const serviceKey = process.env.WEATHER_API_KEY || 'YOUR_API_KEY';
+    const serviceKey = process.env.WEATHER_API_KEY;
     const { baseDate, baseTime } = getCurrentDateTime();
     
-    const url = `http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst`;
+    const url = 'http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst';
     const params = {
-      serviceKey,
+      serviceKey: decodeURIComponent("cPdGKAsUpOaVmBWNujf8zCL0q%2BXyzMSMGebwv4%2FLt%2BMJZCz8lOidIVcww3rhbqJ%2FyO8OLyRi0QJY%2FimdYx7zSg%3D%3D"),
       numOfRows: '10',
       pageNo: '1',
       base_date: baseDate,
@@ -62,48 +49,92 @@ async function getWeatherData(nx: number, ny: number) {
       dataType: 'JSON'
     };
 
+    console.log('API 요청 파라미터:', params);
+
     const response = await axios.get(url, { params });
+    
+    if (typeof response.data === 'string' && response.data.includes('OpenAPI_ServiceResponse')) {
+      const errorMatch = response.data.match(/<returnReasonCode>(\d+)<\/returnReasonCode>/);
+      if (errorMatch) {
+        const errorCode = errorMatch[1];
+        throw new Error(getErrorMessage(errorCode));
+      }
+    }
+
+    // 응답 데이터 디버깅을 위한 로그 추가
+    console.log('API 응답 데이터:', JSON.stringify(response.data, null, 2));
+    
+    // 응답 데이터 구조 확인 및 에러 처리
+    if (!response.data || !response.data.response) {
+      console.log('응답 데이터 구조:', response.data);
+      throw new Error('API 응답 형식이 올바르지 않습니다.');
+    }
+
+    // API 응답 에러 코드 처리
+    const resultCode = response.data.response.header?.resultCode;
+    if (!resultCode || resultCode !== '00') {
+      const errorMsg = getErrorMessage(resultCode || '99');
+      throw new Error(errorMsg);
+    }
+
+    const items = response.data.response.body?.items?.item;
+    if (!items) {
+      throw new Error('날씨 데이터가 없습니다.');
+    }
+    
     return {
-      data: response.data,
+      data: {
+        items,
+        totalCount: response.data.response.body.totalCount
+      },
       requestTime: { baseDate, baseTime }
     };
   } catch (error) {
     console.error('날씨 API 호출 실패:', error);
-    throw new Error('날씨 정보를 가져오는데 실패했습니다.');
+    if (axios.isAxiosError(error)) {
+      console.error('API 상세 에러:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data
+      });
+    }
+    throw error;
   }
 }
 
-// 메인 날씨 API 엔드포인트
-app.get('/weather/:level1?/:level2?/:level3?', 
+// API 에러 코드에 따른 메시지 반환
+function getErrorMessage(code: string): string {
+  const errorMessages: { [key: string]: string } = {
+    '01': '어플리케이션 에러',
+    '02': '데이터베이스 에러',
+    '03': '데이터없음',
+    '04': 'HTTP 에러',
+    '30': '등록되지 않은 서비스키',
+    '31': '기한만료된 서비스키',
+    '32': '등록되 않은 IP',
+    '33': '서명되지 않은 호출',
+    '99': '기타에러'
+  };
+  
+  return errorMessages[code] || '알 수 없는 에러';
+}
+
+// 메인 날씨 API 엔드포인트 수정
+app.get('/weather', 
   (req: express.Request, res: express.Response) => {
     (async () => {
       try {
-        const { level1, level2, level3 } = req.params;
+        const { nx, ny } = req.query;
         
-        if (!level1) {
+        if (!nx || !ny) {
           return res.status(400).json({
-            error: '최소한 1단계 지역명은 입력해야 합니다.'
+            error: 'nx와 ny 좌표값은 필수입니다.'
           });
         }
 
-        const coordinates = coordinateService.findCoordinates({ level1, level2, level3 });
-
-        if (!coordinates) {
-          return res.status(404).json({ 
-            error: '지역을 찾을 수 없습니다.',
-            providedLocation: { level1, level2, level3 }
-          });
-        }
-
-        const { nx, ny } = coordinates;
-        const weatherData = await getWeatherData(nx, ny);
+        const weatherData = await getWeatherData(Number(nx), Number(ny));
         
         res.json({
-          location: {
-            level1: coordinates.level1,
-            level2: coordinates.level2,
-            level3: coordinates.level3,
-          },
           coordinates: { nx, ny },
           weather: weatherData
         });
@@ -118,18 +149,6 @@ app.get('/weather/:level1?/:level2?/:level3?',
     })();
   }
 );
-
-// 지역 목록 조회 API
-app.get('/regions', (req, res) => {
-  try {
-    const regions = coordinateService.getAllRegions();
-    res.json(regions);
-  } catch (error) {
-    res.status(500).json({ 
-      error: '지역 목록을 가져오는데 실패했습니다.' 
-    });
-  }
-});
 
 // 에러 핸들링 미들웨어
 app.use((error: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
