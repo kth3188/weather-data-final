@@ -1,8 +1,7 @@
 import * as XLSX from 'xlsx';
 import path from 'path';
 
-// 인터페이스 정의
-interface Coordinate {
+export interface Coordinate {
   level1: string;    // 1단계
   level2: string;    // 2단계
   level3: string;    // 3단계
@@ -10,7 +9,7 @@ interface Coordinate {
   ny: number;
 }
 
-interface RegionQuery {
+export interface RegionQuery {
   level1?: string;
   level2?: string;
   level3?: string;
@@ -19,11 +18,8 @@ interface RegionQuery {
 class CoordinateService {
   private static instance: CoordinateService;
   private coordinatesCache: Coordinate[] | null = null;
-  private readonly excelPath: string;
 
-  private constructor() {
-    this.excelPath = path.join(__dirname, '../data/coordinates.xlsx');
-  }
+  private constructor() {}
 
   public static getInstance(): CoordinateService {
     if (!CoordinateService.instance) {
@@ -32,73 +28,40 @@ class CoordinateService {
     return CoordinateService.instance;
   }
 
-  // 엑셀에서 좌표 데이터 읽기
-  private readCoordinatesFromExcel(): Coordinate[] {
-    try {
-      const workbook = XLSX.readFile(this.excelPath);
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json(sheet);
+  private getCoordinates(): Coordinate[] {
+    if (this.coordinatesCache) {
+      return this.coordinatesCache;
+    }
 
-      return jsonData.map((row: any) => ({
-        level1: row['1단계'] || '',
-        level2: row['2단계'] || '',
-        level3: row['3단계'] || '',
-        nx: Number(row['nx']),
-        ny: Number(row['ny'])
-      }));
+    try {
+      const filePath = path.join(__dirname, '../data/coordinates.xlsx');
+      const workbook = XLSX.readFile(filePath);
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      this.coordinatesCache = XLSX.utils.sheet_to_json(sheet) as Coordinate[];
+      return this.coordinatesCache;
     } catch (error) {
-      console.error('엑셀 파일 읽기 실패:', error);
+      console.error('좌표 데이터 로딩 실패:', error);
       return [];
     }
   }
 
-  // 캐시된 좌표 데이터 가져오기
-  private getCoordinates(): Coordinate[] {
-    if (!this.coordinatesCache) {
-      this.coordinatesCache = this.readCoordinatesFromExcel();
-    }
-    return this.coordinatesCache;
-  }
-
-  // 지역 정보로 좌표 찾기
-  public findCoordinates(query: RegionQuery): Coordinate | undefined {
+  public findCoordinates(query: RegionQuery): Coordinate | null {
     const coordinates = this.getCoordinates();
-    
     return coordinates.find(coord => {
-      // 1단계는 필수
-      if (!query.level1 || !coord.level1.includes(query.level1)) {
-        return false;
-      }
-      
-      // 2단계가 제공된 경우
-      if (query.level2) {
-        if (!coord.level2.includes(query.level2)) {
-          return false;
-        }
-        
-        // 3단계가 제공된 경우
-        if (query.level3) {
-          if (!coord.level3.includes(query.level3)) {
-            return false;
-          }
-        }
-      }
-      
+      if (query.level1 && coord.level1 !== query.level1) return false;
+      if (query.level2 && coord.level2 !== query.level2) return false;
+      if (query.level3 && coord.level3 !== query.level3) return false;
       return true;
-    });
+    }) || null;
   }
 
-  // 캐시 초기화 (필요한 경우)
-  public clearCache(): void {
-    this.coordinatesCache = null;
-  }
-
-  // 모든 지역 목록 가져오기
   public getAllRegions(): Coordinate[] {
     return this.getCoordinates();
   }
+
+  public clearCache(): void {
+    this.coordinatesCache = null;
+  }
 }
 
-export const coordinateService = CoordinateService.getInstance();
-export type { Coordinate, RegionQuery }; 
+export const coordinateService = CoordinateService.getInstance(); 

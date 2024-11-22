@@ -2,12 +2,17 @@ import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
 import dotenv from 'dotenv';
+import { coordinateService } from '../utils/coordinateService';
+import { RequestHandler } from 'express';
 
 dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Express 라우터 생성
+const router = express.Router();
 
 // 현재 시간 기준으로 baseDate와 baseTime을 구하는 함수
 function getCurrentDateTime() {
@@ -119,36 +124,84 @@ function getErrorMessage(code: string): string {
   return errorMessages[code] || '알 수 없는 에러';
 }
 
-// 메인 날씨 API 엔드포인트 수정
-app.get('/weather', 
-  (req: express.Request, res: express.Response) => {
-    (async () => {
-      try {
-        const { nx, ny } = req.query;
-        
-        if (!nx || !ny) {
-          return res.status(400).json({
-            error: 'nx와 ny 좌표값은 필수입니다.'
-          });
-        }
+// 타입 정의 추가
+interface WeatherQuery {
+  nx?: string;
+  ny?: string;
+}
 
-        const weatherData = await getWeatherData(Number(nx), Number(ny));
-        
-        res.json({
-          coordinates: { nx, ny },
-          weather: weatherData
-        });
+interface RegionQuery {
+  level1?: string;
+  level2?: string;
+  level3?: string;
+}
 
-      } catch (error) {
-        console.error('날씨 정보 조회 실패:', error);
-        res.status(500).json({ 
-          error: '날씨 정보를 가져오는데 실패했습니다.',
-          message: error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
-        });
-      }
-    })();
+// Weather Handler 정의
+const weatherHandler: RequestHandler<{}, {}, {}, WeatherQuery> = async (req, res) => {
+  try {
+    const { nx, ny } = req.query;
+    
+    if (!nx || !ny) {
+      res.status(400).json({
+        error: 'nx와 ny 좌표값은 필수입니다.'
+      });
+      return;
+    }
+
+    const weatherData = await getWeatherData(Number(nx), Number(ny));
+    
+    res.json({
+      coordinates: { nx, ny },
+      weather: weatherData
+    });
+  } catch (error) {
+    console.error('날씨 정보 조회 실패:', error);
+    res.status(500).json({ 
+      error: '날씨 정보 조회 실패',
+      message: error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
+    });
   }
-);
+};
+
+// Region Handler 정의
+const regionHandler: RequestHandler<{}, {}, {}, RegionQuery> = async (req, res, next) => {
+  try {
+    const { level1, level2, level3 } = req.query;
+    const coordinate = coordinateService.findCoordinates({
+      level1: level1 as string,
+      level2: level2 as string,
+      level3: level3 as string
+    });
+    
+    if (!coordinate) {
+      res.status(404).json({ error: '지역을 찾을 수 없습니다.' });
+      return;
+    }
+
+    const weatherData = await getWeatherData(coordinate.nx, coordinate.ny);
+    res.json({
+      region: {
+        level1: coordinate.level1,
+        level2: coordinate.level2,
+        level3: coordinate.level3
+      },
+      coordinates: {
+        nx: coordinate.nx,
+        ny: coordinate.ny
+      },
+      weather: weatherData
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 라우터에 핸들러 연결
+router.get('/weather', weatherHandler);
+router.get('/region', regionHandler);
+
+// 라우터를 앱에 마운트
+app.use('/api', router);
 
 // 에러 핸들링 미들웨어
 app.use((error: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
