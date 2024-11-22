@@ -29,6 +29,6 @@ app.get("/weather", function (req: any, res: any) {
 
 app.listen(3000, function () {
   console.log(
-    "http://127.0.0.1:3000/weather?serviceKey=cPdGKAsUpOaVmBWNujf8zCL0q%2BXyzMSMGebwv4%2FLt%2BMJZCz8lOidIVcww3rhbqJ%2FyO8OLyRi0QJY%2FimdYx7zSg%3D%3D&numOfRows=10&pageNo=1&base_date=20241122&base_time=0600&nx=61&ny=125 app listening on port 3000!"
+    "https://weather-data-final-cyan.vercel.app/weather?serviceKey=cPdGKAsUpOaVmBWNujf8zCL0q%2BXyzMSMGebwv4%2FLt%2BMJZCz8lOidIVcww3rhbqJ%2FyO8OLyRi0QJY%2FimdYx7zSg%3D%3D&numOfRows=10&pageNo=1&base_date=20241122&base_time=0600&nx=61&ny=125 app listening on port 3000!"
   );
 });
