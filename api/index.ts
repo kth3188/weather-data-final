@@ -49,7 +49,7 @@ async function getWeatherData(nx: number, ny: number) {
 
     const url = 'http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst';
     const params = {
-      serviceKey: decodeURIComponent("cPdGKAsUpOaVmBWNujf8zCL0q%2BXyzMSMGebwv4%2FLt%2BMJZCz8lOidIVcww3rhbqJ%2FyO8OLyRi0QJY%2FimdYx7zSg%3D%3D"),
+      serviceKey: "cPdGKAsUpOaVmBWNujf8zCL0q%2BXyzMSMGebwv4%2FLt%2BMJZCz8lOidIVcww3rhbqJ%2FyO8OLyRi0QJY%2FimdYx7zSg%3D%3D",
       numOfRows: '10',
       pageNo: '1',
       base_date: baseDate,
@@ -184,6 +184,9 @@ const regionHandler: RequestHandler<{}, {}, {}, RegionQuery> = async (req, res, 
     console.log('날씨 데이터 요청 전');
 
     const weatherData = await getWeatherData(coordinate.nx, coordinate.ny);
+    if (!weatherData) {
+      throw new Error('날씨 데이터를 가져오는데 실패했습니다.');
+    }
     res.json({
       region: {
         level1: coordinate.level1,
