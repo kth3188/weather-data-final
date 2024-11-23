@@ -19,7 +19,7 @@ REQUIRED_ENV_VARS.forEach(envVar => {
   }
 });
 
-const serviceKey = process.env.WEATHER_API_KEY;
+const serviceKey = decodeURIComponent(process.env.WEATHER_API_KEY || '');
 
 const app = express();
 app.use(cors());
@@ -54,10 +54,10 @@ function getCurrentDateTime() {
 async function getWeatherData(nx: number, ny: number) {
   try {
     const { baseDate, baseTime } = getCurrentDateTime();
-    const url = 'https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst';
+    const url = 'http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst';
     
     const params = {
-      serviceKey: process.env.WEATHER_API_KEY,
+      serviceKey,
       numOfRows: '10',
       pageNo: '1',
       base_date: baseDate,
@@ -66,26 +66,62 @@ async function getWeatherData(nx: number, ny: number) {
       ny: ny.toString(),
       dataType: 'JSON'
     };
-
-    console.log('API 요청 파라미터:', params);  // 디버깅용 로그 추가
-
+    
+    console.log('API 요청 파라미터:', {
+      ...params,
+      serviceKey: 'HIDDEN'  // 보안을 위해 로그에서는 서비스키 숨김
+    });
+    
     const response = await axios.get(url, { 
       params,
-      timeout: 10000  // 타임아웃 증가
+      timeout: 10000
     });
 
-    console.log('API 응답:', response.data);  // 디버깅용 로그 추가
+    const result = response.data;
+    
+    // 응답 구조 상세 로깅
+    console.log('API 응답 구조:', {
+      hasResponse: !!result.response,
+      hasHeader: !!result.response?.header,
+      hasBody: !!result.response?.body,
+      resultCode: result.response?.header?.resultCode,
+      resultMsg: result.response?.header?.resultMsg
+    });
 
-    if (!response.data?.response?.body?.items?.item) {
-      throw new Error('유효하지 않은 응답 데이터 형식');
+    // 응답 검증 강화
+    if (!result.response) {
+      throw new Error('API 응답 형식이 올바르지 않습니다.');
+    }
+
+    const header = result.response.header;
+    if (!header) {
+      throw new Error('API 응답에 header 정보가 없습니다.');
+    }
+
+    if (header.resultCode !== '00') {
+      const errorMessage = getErrorMessage(header.resultCode);
+      throw new Error(`API 오류 (${header.resultCode}): ${errorMessage}`);
+    }
+
+    const items = result.response.body?.items?.item;
+    if (!items) {
+      throw new Error('날씨 데이터가 없습니다.');
     }
 
     return {
-      data: response.data.response.body.items.item,
+      data: items,
       requestTime: { baseDate, baseTime }
     };
+
   } catch (error) {
-    console.error('날씨 API 호출 실패:', error);  // 자세한 에러 로깅
+    console.error('API 응답 처리 중 오류:', error);
+    if (axios.isAxiosError(error) && error.response) {
+      console.error('API 에러 상세:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data
+      });
+    }
     throw error;
   }
 }
@@ -131,6 +167,7 @@ const weatherHandler: RequestHandler<{}, {}, {}, WeatherQuery> = async (req, res
       return;
     }
 
+    console.log('날씨 정보 요청:', { nx, ny });
     const weatherData = await getWeatherData(Number(nx), Number(ny));
     
     res.json({
@@ -139,9 +176,11 @@ const weatherHandler: RequestHandler<{}, {}, {}, WeatherQuery> = async (req, res
     });
   } catch (error) {
     console.error('날씨 정보 조회 실패:', error);
+    // 더 자세한 에러 정보 반환
     res.status(500).json({ 
       error: '날씨 정보 조회 실패',
-      message: error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
+      message: error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.',
+      details: error instanceof Error ? error.stack : undefined
     });
   }
 };
@@ -150,25 +189,46 @@ const weatherHandler: RequestHandler<{}, {}, {}, WeatherQuery> = async (req, res
 const regionHandler: RequestHandler<{}, {}, {}, RegionQuery> = async (req, res, next) => {
   try {
     const { level1, level2, level3 } = req.query;
+    
+    // 입력된 지역 정보 로깅
+    console.log('요청된 지역 정보:', { level1, level2, level3 });
+    
+    if (!level1 || !level2 || !level3) {
+      res.status(400).json({ 
+        error: '모든 지역 정보(시도, 시군구, 읍면동)가 필요합니다.' 
+      });
+      return;
+    }
+
+    // coordinateService 호출 전 로깅
+    console.log('좌표 검색 시도:', {
+      level1: level1 as string,
+      level2: level2 as string,
+      level3: level3 as string
+    });
+
     const coordinate = coordinateService.findCoordinates({
       level1: level1 as string,
       level2: level2 as string,
       level3: level3 as string
     });
     
+    // 좌표 검색 결과 로깅
+    console.log('좌표 검색 결과:', coordinate);
+
     if (!coordinate) {
-      res.status(404).json({ error: '지역을 찾을 수 없습니다.' });
+      res.status(404).json({ 
+        error: '지역을 찾을 수 없습니다.',
+        params: { level1, level2, level3 },
+        suggestion: '지역명을 정확히 입력했는지 확인해주세요. 예: 삼성동 -> 삼성1동'
+      });
       return;
     }
 
-    console.log('요청 파라미터:', req.query);
     console.log('검색된 좌표:', coordinate);
-    console.log('날씨 데이터 요청 전');
 
     const weatherData = await getWeatherData(coordinate.nx, coordinate.ny);
-    if (!weatherData) {
-      throw new Error('날씨 데이터를 가져오는데 실패했습니다.');
-    }
+    
     res.json({
       region: {
         level1: coordinate.level1,
@@ -182,7 +242,12 @@ const regionHandler: RequestHandler<{}, {}, {}, RegionQuery> = async (req, res, 
       weather: weatherData
     });
   } catch (error) {
-    next(error);
+    console.error('지역 날씨 조회 실패:', error);
+    res.status(500).json({
+      error: '날씨 정보 조회 실패',
+      message: error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.',
+      details: error instanceof Error ? error.stack : undefined
+    });
   }
 };
 
