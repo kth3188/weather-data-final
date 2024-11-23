@@ -193,25 +193,25 @@ const regionHandler: RequestHandler<{}, {}, {}, RegionQuery> = async (req, res, 
     // 입력된 지역 정보 로깅
     console.log('요청된 지역 정보:', { level1, level2, level3 });
     
-    if (!level1 || !level2 || !level3) {
+    // level1과 level2만 필수로 변경
+    if (!level1 || !level2) {
       res.status(400).json({ 
-        error: '모든 지역 정보(시도, 시군구, 읍면동)가 필요합니다.' 
+        error: '시도(level1)와 시군구(level2) 정보는 필수입니다.' 
       });
       return;
     }
 
-    // coordinateService 호출 전 로깅
-    console.log('좌표 검색 시도:', {
+    // level3가 없는 경우 빈 문자열로 처리
+    const searchParams = {
       level1: level1 as string,
       level2: level2 as string,
-      level3: level3 as string
-    });
+      level3: (level3 || '') as string
+    };
 
-    const coordinate = coordinateService.findCoordinates({
-      level1: level1 as string,
-      level2: level2 as string,
-      level3: level3 as string
-    });
+    // coordinateService 호출 전 로깅
+    console.log('좌표 검색 시도:', searchParams);
+
+    const coordinate = coordinateService.findCoordinates(searchParams);
     
     // 좌표 검색 결과 로깅
     console.log('좌표 검색 결과:', coordinate);
