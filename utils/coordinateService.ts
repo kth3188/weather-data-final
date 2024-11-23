@@ -60,7 +60,7 @@ class CoordinateService {
     return coordinates.find(coord => {
       if (query.level1 && coord.level1 !== query.level1) return false;
       if (query.level2 && coord.level2 !== query.level2) return false;
-      if (query.level3 && coord.level3 !== query.level3) return false;
+      if (query.level3 && query.level3 !== '' && coord.level3 !== query.level3) return false;
       return true;
     }) || null;
   }
