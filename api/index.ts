@@ -54,7 +54,7 @@ function getCurrentDateTime() {
 async function getWeatherData(nx: number, ny: number) {
   try {
     const { baseDate, baseTime } = getCurrentDateTime();
-    const url = 'http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst';
+    const url = 'https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst';
     
     const params = {
       serviceKey: process.env.WEATHER_API_KEY,
@@ -67,28 +67,25 @@ async function getWeatherData(nx: number, ny: number) {
       dataType: 'JSON'
     };
 
+    console.log('API 요청 파라미터:', params);  // 디버깅용 로그 추가
+
     const response = await axios.get(url, { 
       params,
-      timeout: 5000,  // 5초 타임아웃 설정
-      validateStatus: (status) => status === 200  // 200 상태 코드만 허용
+      timeout: 10000  // 타임아웃 증가
     });
 
-    // 응답 데이터 검증
+    console.log('API 응답:', response.data);  // 디버깅용 로그 추가
+
     if (!response.data?.response?.body?.items?.item) {
       throw new Error('유효하지 않은 응답 데이터 형식');
     }
 
     return {
-      data: {
-        items: response.data.response.body.items.item,
-        totalCount: response.data.response.body.totalCount
-      },
+      data: response.data.response.body.items.item,
       requestTime: { baseDate, baseTime }
     };
   } catch (error) {
-    if (axios.isAxiosError(error)) {
-      throw new Error(`API 요청 실패: ${error.message}`);
-    }
+    console.error('날씨 API 호출 실패:', error);  // 자세한 에러 로깅
     throw error;
   }
 }
