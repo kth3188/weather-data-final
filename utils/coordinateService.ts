@@ -18,6 +18,8 @@ export interface RegionQuery {
 class CoordinateService {
   private static instance: CoordinateService;
   private coordinatesCache: Coordinate[] | null = null;
+  private lastCacheUpdate: number = 0;
+  private readonly CACHE_TTL = 1000 * 60 * 60; // 1시간
 
   private constructor() {}
 
@@ -28,9 +30,16 @@ class CoordinateService {
     return CoordinateService.instance;
   }
 
+  private isCacheValid(): boolean {
+    return (
+      this.coordinatesCache !== null &&
+      Date.now() - this.lastCacheUpdate < this.CACHE_TTL
+    );
+  }
+
   private getCoordinates(): Coordinate[] {
-    if (this.coordinatesCache) {
-      return this.coordinatesCache;
+    if (this.isCacheValid()) {
+      return this.coordinatesCache!;
     }
 
     try {
@@ -38,6 +47,7 @@ class CoordinateService {
       const workbook = XLSX.readFile(filePath);
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       this.coordinatesCache = XLSX.utils.sheet_to_json(sheet) as Coordinate[];
+      this.lastCacheUpdate = Date.now();
       return this.coordinatesCache;
     } catch (error) {
       console.error('좌표 데이터 로딩 실패:', error);

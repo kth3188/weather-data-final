@@ -1,13 +1,25 @@
-import express from 'express';
+import express, { RequestHandler } from 'express';
 import cors from 'cors';
 import axios from 'axios';
-import dotenv from 'dotenv';
-import { coordinateService } from '../utils/coordinateService';
-import { RequestHandler } from 'express';
 import path from 'path';
 import XLSX from 'xlsx';
+import * as dotenv from 'dotenv';
+import { coordinateService } from '../utils/coordinateService';
 
-dotenv.config();
+// 개발 환경에서만 dotenv 설정 (production에서는 Vercel 환경 변수 사용)
+if (process.env.NODE_ENV !== 'production') {
+  dotenv.config({ path: path.resolve(__dirname, '../.env') });
+}
+
+// 환경 변수 검증
+const REQUIRED_ENV_VARS = ['WEATHER_API_KEY'];
+REQUIRED_ENV_VARS.forEach(envVar => {
+  if (!process.env[envVar]) {
+    throw new Error(`필수 환경 변수 ${envVar}가 설정되지 않았습니다.`);
+  }
+});
+
+const serviceKey = process.env.WEATHER_API_KEY;
 
 const app = express();
 app.use(cors());
@@ -41,17 +53,11 @@ function getCurrentDateTime() {
 // 날씨 데이터를 가져오는 함수
 async function getWeatherData(nx: number, ny: number) {
   try {
-    const serviceKey = process.env.WEATHER_API_KEY;
     const { baseDate, baseTime } = getCurrentDateTime();
-    
-    console.log('환경변수 확인:', {
-      WEATHER_API_KEY: process.env.WEATHER_API_KEY ? '설정됨' : '미설정'
-    });
-    console.log('날짜/시간 확인:', { baseDate, baseTime });
-
     const url = 'http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst';
+    
     const params = {
-      serviceKey: "cPdGKAsUpOaVmBWNujf8zCL0q%2BXyzMSMGebwv4%2FLt%2BMJZCz8lOidIVcww3rhbqJ%2FyO8OLyRi0QJY%2FimdYx7zSg%3D%3D",
+      serviceKey: process.env.WEATHER_API_KEY,
       numOfRows: '10',
       pageNo: '1',
       base_date: baseDate,
@@ -61,51 +67,28 @@ async function getWeatherData(nx: number, ny: number) {
       dataType: 'JSON'
     };
 
-    console.log('API 요청 파라미터:', params);
+    const response = await axios.get(url, { 
+      params,
+      timeout: 5000,  // 5초 타임아웃 설정
+      validateStatus: (status) => status === 200  // 200 상태 코드만 허용
+    });
 
-    const response = await axios.get(url, { params });
-    
-    if (typeof response.data === 'string' && response.data.includes('OpenAPI_ServiceResponse')) {
-      const errorMatch = response.data.match(/<returnReasonCode>(\d+)<\/returnReasonCode>/);
-      if (errorMatch) {
-        const errorCode = errorMatch[1];
-        throw new Error(getErrorMessage(errorCode));
-      }
+    // 응답 데이터 검증
+    if (!response.data?.response?.body?.items?.item) {
+      throw new Error('유효하지 않은 응답 데이터 형식');
     }
 
-    // 응답 데이터 디버깅을 위한 로그 추가
-    console.log('API 응답 데이터:', JSON.stringify(response.data, null, 2));
-    
-    // 응답 데이터 구조 확인 및 에러 처리
-    if (!response.data || !response.data.response) {
-      console.log('응답 데이터 구조:', response.data);
-      throw new Error('API 응답 형식이 올바르지 않습니다.');
-    }
-
-    // API 응답 에러 코드 처리
-    const resultCode = response.data.response.header?.resultCode;
-    if (!resultCode || resultCode !== '00') {
-      const errorMsg = getErrorMessage(resultCode || '99');
-      throw new Error(errorMsg);
-    }
-
-    const items = response.data.response.body?.items?.item;
-    if (!items) {
-      throw new Error('날씨 데이터가 없습니다.');
-    }
-    
     return {
       data: {
-        items,
+        items: response.data.response.body.items.item,
         totalCount: response.data.response.body.totalCount
       },
       requestTime: { baseDate, baseTime }
     };
   } catch (error) {
-    console.error('상세 에러 정보:', {
-      message: error instanceof Error ? error.message : '알 수 없는 에러',
-      stack: error instanceof Error ? error.stack : undefined
-    });
+    if (axios.isAxiosError(error)) {
+      throw new Error(`API 요청 실패: ${error.message}`);
+    }
     throw error;
   }
 }
@@ -214,11 +197,22 @@ router.get('/region', regionHandler);
 app.use('/api', router);
 
 // 에러 핸들링 미들웨어
-app.use((error: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error(error);
-  res.status(500).json({
+interface ApiError extends Error {
+  statusCode?: number;
+  code?: string;
+}
+
+app.use((error: ApiError, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('에러 발생:', {
+    message: error.message,
+    stack: error.stack,
+    code: error.code
+  });
+
+  res.status(error.statusCode || 500).json({
     error: '서버 오류가 발생했습니다.',
-    message: error.message
+    message: error.message,
+    code: error.code
   });
 });
 
