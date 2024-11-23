@@ -192,6 +192,15 @@ const regionHandler: RequestHandler<{}, {}, {}, RegionQuery> = async (req, res, 
 // 라우터에 핸들러 연결
 router.get('/weather', weatherHandler);
 router.get('/region', regionHandler);
+router.get('/', (req, res) => {
+  res.json({
+    message: '날씨 API 서버가 정상적으로 실행 중입니다.',
+    endpoints: {
+      weather: '/api/weather?nx={nx}&ny={ny}',
+      region: '/api/region?level1={시도}&level2={시군구}&level3={읍면동}'
+    }
+  });
+});
 
 // 라우터를 앱에 마운트
 app.use('/api', router);
